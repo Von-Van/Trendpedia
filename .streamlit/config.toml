@@ -1,0 +1,11 @@
+# Match the app chrome to the chart palette. Streamlit's default accent is red,
+# which collides with the diverging scale where red means "moving the other way".
+[theme]
+primaryColor = "#2a78d6"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

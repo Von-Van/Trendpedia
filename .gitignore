@@ -1,0 +1,16 @@
+# Local dataset — the whole point is that this grows on your machine.
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+.streamlit/secrets.toml
+
+# Local dev convenience (Claude Code launch config)
+.claude/
