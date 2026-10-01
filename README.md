@@ -4,17 +4,59 @@ An interactive dashboard for exploring how public attention moves across Wikiped
 over time — what is surging, what is fading, which topics rise together, and what
 communities of shared attention look like when you draw them as a map.
 
-Everything runs locally. The dataset is a SQLite file that gets more useful every
-day the collector runs.
+Everything runs on your own machine. Nothing is downloaded until you ask for it,
+and the dataset is a single file that gets more useful the longer you keep it.
+
+## Getting started
+
+**You need Python 3.10 or newer.** If you do not have it, get it from
+[python.org](https://www.python.org/downloads/) — on Windows, tick
+*"Add Python to PATH"* during installation.
+
+Then double-click the installer for your system:
+
+| | |
+|---|---|
+| **macOS** | `Install on macOS.command` |
+| **Windows** | `Install on Windows.bat` |
+
+It installs what it needs and adds a **Trendpedia** icon to your Applications
+(macOS) or your Desktop and Start menu (Windows). Double-click that icon whenever
+you want the dashboard — it opens in your browser.
+
+> **macOS:** the first double-click of the `.command` file may be blocked by
+> Gatekeeper — right-click it, choose **Open**, then confirm. If instead you see
+> *"you do not have permission"*, the file lost its executable flag (this happens
+> when a project is downloaded as a ZIP rather than cloned). Fix it once with:
+>
+> ```bash
+> chmod +x "Install on macOS.command"
+> ```
+
+The first time it runs there is no data yet, so the app offers to fetch some.
+Pick how much history you want and press **Collect data now** — Wikipedia
+publishes its past, so a couple of minutes gives you months of it rather than
+months of waiting.
+
+### Keeping it current
+
+Updating is always something you choose to do. The sidebar has a **Data** section
+showing what you have and whether anything new has been published:
+
+- **● Up to date** — nothing to do.
+- **● 2 new days available** — press **Update data** and it fetches just those
+  days, then refreshes every chart.
+
+Under *More data options* you can also reach further back in time, or force the
+charts to recompute. Nothing ever downloads on its own.
+
+### If you prefer a terminal
 
 ```bash
 pip install -r requirements.txt
-python scripts/collect_daily.py --backfill 90    # ~2 minutes, builds real history
+python scripts/collect_daily.py --backfill 90    # ~2 minutes of history
 streamlit run app.py
 ```
-
-The Wikimedia API serves *historical* days, so you do not have to wait weeks for a
-useful dataset — the backfill gives you a working atlas on the first run.
 
 ---
 
@@ -34,11 +76,16 @@ useful dataset — the backfill gives you a working atlas on the first run.
 
 ## The data pipeline
 
-`scripts/collect_daily.py` pulls the day's most-viewed articles from the
+The **Update data** button and `scripts/collect_daily.py` are the same code:
+both pull the day's most-viewed articles from the
 [Wikimedia Pageviews API](https://wikimedia.org/api/rest_v1/#/Pageviews%20data)
-and appends them to SQLite. It never overwrites history: re-running a day updates
-that day only, and every attempt — success, missing data, or upstream error — is
+and append them to SQLite. Neither overwrites history — re-running a day updates
+that day only, and every attempt (success, missing data, upstream error) is
 recorded in `collection_runs`.
+
+The app works out what to fetch rather than assuming. It compares what is stored
+against what Wikimedia has published, which catches both new days *and* holes
+left by a run that failed partway, and asks only for those days.
 
 ```
 articles          article_id, title, first_seen, last_seen, is_mainspace
@@ -54,10 +101,15 @@ collection_runs   run_at, target_date, status, rows_written
 every other modelling choice lives in the analysis layer, so the raw record stays
 trustworthy and re-analysable when you change your mind about the modelling.
 
-Keep it current with a daily cron entry:
+Wikimedia publishes each day a few hours after it ends, so the newest day you can
+ever fetch is normally yesterday. The app knows this and will not offer you a day
+that does not exist yet.
+
+If you would rather it ran unattended, a cron entry does the same job — but the
+button exists so you never need one:
 
 ```bash
-0 4 * * * cd /path/to/wikipedia-attention-atlas && python scripts/collect_daily.py --quiet
+0 4 * * * cd /path/to/Trendpedia && python scripts/collect_daily.py --quiet
 ```
 
 `scripts/rebuild_metrics.py` materialises the derived tables for SQL access. The
@@ -133,7 +185,10 @@ Log space throughout: pageviews are heavy-tailed and move multiplicatively.
 ## Layout
 
 ```
+Install on macOS.command   double-click to set up and add the app icon
+Install on Windows.bat     the same, for Windows
 app.py                     Streamlit shell: navigation and shared sidebar filters
+assets/                    generated icons (.icns / .ico / .png)
 data/wikipedia.db          the dataset (git-ignored; yours grows locally)
 src/
   config.py                paths, API settings, tunable constants
@@ -146,12 +201,16 @@ src/
   queries.py               cached data access shared by every page
   charts.py                Plotly styling and the validated palette
   ui.py                    shared Streamlit components
+  data_panel.py            the sidebar Data section and the Update button
 views/
   overview.py  article_explorer.py  trending.py  lifecycles.py
   relationships.py  attention_map.py  historical.py
 scripts/
-  collect_daily.py         the cron job (and the backfill)
+  collect_daily.py         command-line collection and backfill
   rebuild_metrics.py       materialise derived tables
+  launcher.py              what the desktop icon runs
+  install_desktop.py       builds the icon and the shortcuts
+  make_icon.py             regenerates the artwork
 tests/
 ```
 

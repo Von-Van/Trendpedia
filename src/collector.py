@@ -1,11 +1,13 @@
 """Collection logic: pull days of top-article data into SQLite.
 
-Two modes matter:
-  * `collect_day`      — the daily cron job.
-  * `backfill_range`   — bootstrap months of history in one run, because the
-                         `top` endpoint serves historical dates. This is what
-                         makes the dashboard useful on day one instead of in
-                         three months.
+Collection is on demand — the dashboard's Update button drives it, and the CLI
+script does the same job for anyone who prefers a terminal or a cron entry.
+
+  * `data_status`   — what we hold and what is missing; drives the UI.
+  * `collect_days`  — fetch a specific list of days (the Update button).
+  * `backfill_range`— bootstrap months of history at once, because the `top`
+                      endpoint serves historical dates. This is what makes the
+                      dashboard useful on day one instead of in three months.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Sequence
 
 from . import database as db
 from .config import COLLECTION_LAG_DAYS, DB_PATH, TOP_N
@@ -76,6 +79,30 @@ def existing_dates(db_path: str | Path = DB_PATH) -> set[str]:
     return set(db.collected_dates(db_path))
 
 
+def collect_days(days: Sequence[date], db_path: str | Path = DB_PATH,
+                 client: WikiPageviewsClient | None = None, limit: int = TOP_N,
+                 progress=None) -> CollectionResult:
+    """Collect a specific list of days — what the in-app Update button uses."""
+    db.init_db(db_path)
+    client = client or WikiPageviewsClient()
+    result = CollectionResult(requested=len(days))
+
+    for i, day in enumerate(sorted(days), start=1):
+        day_str = day.isoformat()
+        try:
+            result.rows += collect_day(day, client=client, db_path=db_path, limit=limit)
+            result.collected += 1
+        except DataNotAvailable:
+            result.failed += 1
+            result.errors.append(f"{day_str}: Wikimedia has not published this day yet")
+        except PageviewsError as exc:
+            result.failed += 1
+            result.errors.append(f"{day_str}: {exc}")
+        if progress:
+            progress(i, len(days), day_str)
+    return result
+
+
 def collect_range(start: date, end: date, db_path: str | Path = DB_PATH,
                   client: WikiPageviewsClient | None = None,
                   skip_existing: bool = True, limit: int = TOP_N,
@@ -107,6 +134,74 @@ def collect_range(start: date, end: date, db_path: str | Path = DB_PATH,
         if progress:
             progress(i, len(days), day_str)
     return result
+
+
+@dataclass
+class DataStatus:
+    """What the local dataset holds, and what it is missing."""
+    first: date | None
+    last: date | None
+    newest_available: date
+    missing: list[date] = field(default_factory=list)
+    total_days: int = 0
+    last_updated: str | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.last is None
+
+    @property
+    def days_behind(self) -> int:
+        """Days of *recent* data not yet collected."""
+        if self.last is None:
+            return 0
+        return max(0, (self.newest_available - self.last).days)
+
+    @property
+    def internal_gaps(self) -> int:
+        """Missing days from before the latest collected day — failed runs, mostly."""
+        if self.last is None:
+            return 0
+        return sum(1 for day in self.missing if day <= self.last)
+
+    @property
+    def is_current(self) -> bool:
+        return not self.missing
+
+
+def missing_days(db_path: str | Path = DB_PATH, start: date | None = None,
+                 end: date | None = None) -> list[date]:
+    """Days with no data between `start` and `end`.
+
+    Defaults span the dataset's own history through the newest published day, so
+    it catches both new days and holes left by a run that failed partway.
+    """
+    end = end or latest_available_date()
+    have = existing_dates(db_path)
+    if start is None:
+        if not have:
+            return []
+        start = date.fromisoformat(min(have))
+    if start > end:
+        return []
+    return [day for day in daterange(start, end) if day.isoformat() not in have]
+
+
+def data_status(db_path: str | Path = DB_PATH) -> DataStatus:
+    """Summary the dashboard uses to decide what to offer the user."""
+    dates = sorted(existing_dates(db_path))
+    newest = latest_available_date()
+    if not dates:
+        return DataStatus(first=None, last=None, newest_available=newest)
+
+    first, last = date.fromisoformat(dates[0]), date.fromisoformat(dates[-1])
+    with db.session(db_path) as conn:
+        last_updated = db.get_meta(conn, "last_collection")
+    return DataStatus(
+        first=first, last=last, newest_available=newest,
+        missing=missing_days(db_path, end=newest), total_days=len(dates),
+        last_updated=last_updated,
+    )
 
 
 def backfill_range(days: int, end: date | None = None, **kwargs) -> CollectionResult:

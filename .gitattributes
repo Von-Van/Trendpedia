@@ -1,2 +1,17 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts must keep LF endings. A CRLF shebang makes macOS refuse the
+# installer with "bad interpreter", which is a baffling error to hand someone.
+*.command text eol=lf
+*.sh       text eol=lf
+
+# Windows batch and PowerShell want CRLF.
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Generated artwork and the dataset are binary.
+*.png  binary
+*.ico  binary
+*.icns binary
+*.db   binary

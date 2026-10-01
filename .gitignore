@@ -4,9 +4,13 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 
+# Created by the desktop installer / launcher
+.venv/
+data/launcher.log
+Trendpedia.app/
+
 __pycache__/
 *.py[cod]
-.venv/
 venv/
 .pytest_cache/
 .DS_Store

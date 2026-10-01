@@ -12,6 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from src import data_panel             # noqa: E402
 from src import database as db          # noqa: E402
 from src import queries as Q            # noqa: E402
 from src.config import DB_PATH, MIN_OBSERVATIONS  # noqa: E402
@@ -29,37 +30,31 @@ DB = str(DB_PATH)
 # --- first run ---------------------------------------------------------------
 
 def onboarding() -> None:
-    """Shown when the dataset is empty: explain the one command that fixes it."""
+    """First run. One button, no terminal required."""
     st.title("🌐 Wikipedia Attention Atlas")
     st.markdown(
         "This dashboard explores how public attention moves across Wikipedia over "
         "time — what is surging, what is fading, and which topics rise together.\n\n"
-        "**There is no data yet.** The pageviews API serves historical days, so you "
-        "can build a useful dataset in a couple of minutes rather than waiting weeks."
+        "**Let's get some data.** Wikipedia publishes its history, so there is no "
+        "waiting: a couple of minutes from now you will have months of it."
     )
-    st.code("python scripts/collect_daily.py --backfill 90", language="bash")
-    st.caption("Then keep it current with a daily `python scripts/collect_daily.py`.")
 
-    st.divider()
-    st.markdown("#### …or collect it right here")
-    days = st.slider("Days of history to fetch", 14, 180, 90, step=7)
-    if st.button("Start collecting", type="primary"):
-        from src.collector import backfill_range
-        bar = st.progress(0.0, text="Contacting Wikimedia…")
+    left, right = st.columns([2, 3])
+    with left:
+        days = st.slider("How much history?", 14, 180, 90, step=7,
+                         format="%d days")
+        minutes = max(1, round(days * 0.6 / 60))
+        st.caption(f"About {minutes} minute{'s' if minutes != 1 else ''} to fetch.")
+    with right:
+        st.markdown("&nbsp;")
+        if st.button("Collect data now", type="primary", use_container_width=True):
+            data_panel.onboarding_fetch(DB, days)
+        st.caption("You can add more history later, from the sidebar.")
 
-        def tick(done: int, total: int, day: str) -> None:
-            bar.progress(done / total, text=f"Collected {day}  ({done}/{total} days)")
-
-        result = backfill_range(days, db_path=DB, progress=tick)
-        bar.empty()
-        if result.collected:
-            st.success(f"{result}. Loading the dashboard…")
-            st.cache_data.clear()
-            st.rerun()
-        else:
-            st.error(f"Collection failed. {result}")
-            for err in result.errors[:5]:
-                st.caption(err)
+    with st.expander("Prefer the command line?"):
+        st.code("python scripts/collect_daily.py --backfill 90", language="bash")
+        st.caption("Does exactly the same thing. Updating is always your call — "
+                   "nothing downloads on its own.")
 
 
 # --- sidebar -----------------------------------------------------------------
@@ -104,15 +99,12 @@ def sidebar_filters() -> Q.Filters:
                  "which otherwise dominates every ranking.")
 
         st.divider()
+        data_panel.render(DB)
+
         stats = Q.dataset_stats(DB)
         st.caption(
-            f"**Dataset** · {int(stats.get('days', 0))} days · "
             f"{int(stats.get('articles', 0)):,} articles · "
             f"{int(stats.get('observations', 0)):,} observations")
-        st.caption(f"{stats.get('first_date', '—')} → {stats.get('last_date', '—')}")
-        if st.button("Refresh cache", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
 
     return Q.Filters(
         db_path=DB, start=start.isoformat(), end=end.isoformat(),

@@ -119,3 +119,39 @@ def test_attention_map_focus_and_highlight(db_path):
     assert len(article_picker.options) > 1, "no mapped articles to highlight"
     article_picker.select(article_picker.options[1]).run(timeout=120)
     assert not app.exception, f"highlighting an article raised: {app.exception}"
+
+
+DATA_PANEL = """
+import sys
+sys.path.insert(0, {root!r})
+import streamlit as st
+from src import data_panel
+with st.sidebar:
+    data_panel.render({db!r})
+"""
+
+
+def _panel(db_path: str) -> AppTest:
+    app = AppTest.from_string(DATA_PANEL.format(root=str(ROOT), db=db_path))
+    app.run(timeout=60)
+    return app
+
+
+def test_data_panel_renders_for_an_empty_database(empty_db):
+    app = _panel(empty_db)
+    assert not app.exception
+    assert any("No data collected yet" in c.value for c in app.caption)
+
+
+def test_data_panel_offers_an_update_button(db_path):
+    """The synthetic dataset ends in the past, so an update is always pending."""
+    app = _panel(db_path)
+    assert not app.exception
+    labels = [b.label for b in app.button]
+    assert "Update data" in labels
+
+
+def test_data_panel_reports_how_far_behind_it_is(db_path):
+    app = _panel(db_path)
+    text = " ".join(c.value for c in app.caption)
+    assert "new day" in text or "backfill" in text
